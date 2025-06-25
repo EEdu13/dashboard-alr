@@ -10,7 +10,6 @@ st.set_page_config(page_title="Dashboard ALR", layout="wide")
 
 # --- Login ---
 usuarios = {"admin": "admin123", "alr": "alr2025"}
-
 if "logado" not in st.session_state:
     st.session_state.logado = False
 
@@ -48,49 +47,65 @@ except Exception as e:
 if pagina == "📄 Dados":
     st.title("📄 Dados Brutos - HISTORICO_BDO")
 
+    # Filtro por líder
     lideres = df['LIDER'].dropna().unique()
     lider_sel = st.selectbox("Filtrar por LÍDER", ["Todos"] + list(lideres))
     if lider_sel != "Todos":
         df = df[df['LIDER'] == lider_sel]
 
-    # Configurar grade editável
+    # Ocultação de colunas
+    todas_colunas = list(df.columns)
+    colunas_visiveis = st.multiselect("🔍 Selecione as colunas visíveis:", todas_colunas, default=todas_colunas)
+    df = df[colunas_visiveis]
+
+    # Configuração do AgGrid
     gb = GridOptionsBuilder.from_dataframe(df)
     gb.configure_default_column(editable=False, resizable=True, filter=True)
-    gb.configure_columns(["PRODUCÃO", "FATURADO"], editable=True, type=["numericColumn"])
+
+    # Colunas com agregação
+    if "PRODUCÃO" in df.columns:
+        gb.configure_column("PRODUCÃO", editable=True, type=["numericColumn"], aggFunc="sum")
+    if "FATURADO" in df.columns:
+        gb.configure_column("FATURADO", editable=True, type=["numericColumn"], aggFunc="sum")
+    if "LIDER" in df.columns:
+        gb.configure_column("LIDER", editable=False, aggFunc="count")
+
+    # Opções do grid
+    gb.configure_grid_options(
+        autoSizeAllColumns=True,
+        groupIncludeFooter=True,
+        groupIncludeTotalFooter=True,
+        suppressAggFuncInHeader=False,
+    )
+
     grid_options = gb.build()
 
     grid_response = AgGrid(
         df,
         gridOptions=grid_options,
         update_mode=GridUpdateMode.MODEL_CHANGED,
-        fit_columns_on_grid_load=True,
-        use_container_width=True
+        fit_columns_on_grid_load=False,
+        allow_unsafe_jscode=True,
+        use_container_width=True,
+        height=500
     )
 
     df_editado = grid_response["data"]
 
-    # Totais
-    try:
-        total_producao = pd.to_numeric(df_editado["PRODUCÃO"], errors="coerce").sum()
-        total_faturado = pd.to_numeric(df_editado["FATURADO"], errors="coerce").sum()
-        st.markdown(f"**🧾 Total PRODUCÃO:** {total_producao:,.2f}")
-        st.markdown(f"**💰 Total FATURADO:** {total_faturado:,.2f}")
-    except Exception as e:
-        st.warning(f"Erro ao calcular totais: {e}")
-
-    # Atualização em tempo real no SQL
+    # Atualização no SQL em tempo real
     with engine.begin() as conn:
-        for index, row in df_editado.iterrows():
+        for _, row in df_editado.iterrows():
             try:
-                conn.execute(
-                    text("""
-                        UPDATE HISTORICO_BDO
-                        SET PRODUCÃO = :producao,
-                            FATURADO = :faturado
-                        WHERE ID = :id
-                    """),
-                    {"producao": row["PRODUCÃO"], "faturado": row["FATURADO"], "id": row["ID"]}
-                )
+                if "PRODUCÃO" in row and "FATURADO" in row:
+                    conn.execute(
+                        text("""
+                            UPDATE HISTORICO_BDO
+                            SET PRODUCÃO = :producao,
+                                FATURADO = :faturado
+                            WHERE ID = :id
+                        """),
+                        {"producao": row["PRODUCÃO"], "faturado": row["FATURADO"], "id": row["ID"]}
+                    )
             except Exception as e:
                 st.error(f"Erro ao atualizar ID {row['ID']}: {e}")
 
@@ -100,13 +115,11 @@ elif pagina == "📊 Dashboards":
     if 'PRODUCÃO' in df.columns:
         df['PRODUCÃO'] = pd.to_numeric(df['PRODUCÃO'], errors='coerce')
 
-        # Gráfico de barras
         graf_barra = df.groupby("LIDER")["PRODUCÃO"].sum().reset_index()
         st.subheader("📦 Produção por Líder")
         fig1 = px.bar(graf_barra, x="LIDER", y="PRODUCÃO", text_auto=True)
         st.plotly_chart(fig1, use_container_width=True)
 
-        # Gráfico de pizza
         st.subheader("🥧 Distribuição da Produção (%)")
         fig2 = px.pie(graf_barra, names="LIDER", values="PRODUCÃO")
         st.plotly_chart(fig2, use_container_width=True)
