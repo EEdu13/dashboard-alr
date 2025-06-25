@@ -17,7 +17,7 @@ try:
         UID={username};
         PWD={password};
         Encrypt=yes;
-        TrustServerCertificate=no;
+        TrustServerCertificate=yes;
         Connection Timeout=30;
     '''
 
@@ -25,7 +25,7 @@ try:
     conn = pyodbc.connect(conn_str)
     print("✅ Conexão bem-sucedida!")
 
-    # Consulta de teste (ajuste a tabela se quiser)
+    # Consulta de teste
     df = pd.read_sql("SELECT TOP 10 * FROM HISTORICO_BDO ORDER BY ID DESC", conn)
 
     # Mostrar resultado

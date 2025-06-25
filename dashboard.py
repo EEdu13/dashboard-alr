@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
+from urllib.parse import quote_plus
 import plotly.express as px
 
 # --- Configuração da página ---
@@ -30,8 +31,10 @@ pagina = st.sidebar.radio("Ir para:", ["📄 Dados", "📊 Dashboards", "🧪 Qu
 
 # --- Conexão com SQL ---
 try:
+    senha_segura = quote_plus("Senhaforte123!")  # codifica a senha com "!" corretamente
     engine = create_engine(
-        "mssql+pytds://gestaoti:Senhaforte123!@alrflorestal.database.windows.net/Tabela_teste?charset=utf8"
+        f"mssql+pyodbc://gestaoti:{senha_segura}@alrflorestal.database.windows.net/Tabela_teste"
+        "?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes"
     )
     query = "SELECT TOP 1000 * FROM HISTORICO_BDO ORDER BY ID DESC"
     df = pd.read_sql(query, engine)
@@ -65,7 +68,6 @@ elif pagina == "📊 Dashboards":
         st.subheader("🥧 Distribuição da Produção (%)")
         fig2 = px.pie(graf_barra, names="LIDER", values="PRODUCÃO")
         st.plotly_chart(fig2, use_container_width=True)
-
     else:
         st.warning("Coluna 'PRODUCÃO' não encontrada.")
 
