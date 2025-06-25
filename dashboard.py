@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from urllib.parse import quote_plus
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
 import plotly.express as px
 
 # --- Configuração da página ---
@@ -31,7 +32,7 @@ pagina = st.sidebar.radio("Ir para:", ["📄 Dados", "📊 Dashboards", "🧪 Qu
 
 # --- Conexão com SQL ---
 try:
-    senha_segura = quote_plus("Senhaforte123!")  # codifica a senha com "!" corretamente
+    senha_segura = quote_plus("Senhaforte123!")
     engine = create_engine(
         f"mssql+pyodbc://gestaoti:{senha_segura}@alrflorestal.database.windows.net/Tabela_teste"
         "?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes"
@@ -43,14 +44,55 @@ except Exception as e:
     st.error(f"Erro ao conectar ao banco de dados: {e}")
     st.stop()
 
-# --- Página: Dados ---
+# --- Página: Dados (com AgGrid) ---
 if pagina == "📄 Dados":
     st.title("📄 Dados Brutos - HISTORICO_BDO")
+
     lideres = df['LIDER'].dropna().unique()
     lider_sel = st.selectbox("Filtrar por LÍDER", ["Todos"] + list(lideres))
     if lider_sel != "Todos":
         df = df[df['LIDER'] == lider_sel]
-    st.dataframe(df, use_container_width=True)
+
+    # Configurar grade editável
+    gb = GridOptionsBuilder.from_dataframe(df)
+    gb.configure_default_column(editable=False, resizable=True, filter=True)
+    gb.configure_columns(["PRODUCÃO", "FATURADO"], editable=True, type=["numericColumn"])
+    grid_options = gb.build()
+
+    grid_response = AgGrid(
+        df,
+        gridOptions=grid_options,
+        update_mode=GridUpdateMode.MODEL_CHANGED,
+        fit_columns_on_grid_load=True,
+        use_container_width=True
+    )
+
+    df_editado = grid_response["data"]
+
+    # Totais
+    try:
+        total_producao = pd.to_numeric(df_editado["PRODUCÃO"], errors="coerce").sum()
+        total_faturado = pd.to_numeric(df_editado["FATURADO"], errors="coerce").sum()
+        st.markdown(f"**🧾 Total PRODUCÃO:** {total_producao:,.2f}")
+        st.markdown(f"**💰 Total FATURADO:** {total_faturado:,.2f}")
+    except Exception as e:
+        st.warning(f"Erro ao calcular totais: {e}")
+
+    # Atualização em tempo real no SQL
+    with engine.begin() as conn:
+        for index, row in df_editado.iterrows():
+            try:
+                conn.execute(
+                    text("""
+                        UPDATE HISTORICO_BDO
+                        SET PRODUCÃO = :producao,
+                            FATURADO = :faturado
+                        WHERE ID = :id
+                    """),
+                    {"producao": row["PRODUCÃO"], "faturado": row["FATURADO"], "id": row["ID"]}
+                )
+            except Exception as e:
+                st.error(f"Erro ao atualizar ID {row['ID']}: {e}")
 
 # --- Página: Dashboards ---
 elif pagina == "📊 Dashboards":
@@ -71,15 +113,17 @@ elif pagina == "📊 Dashboards":
     else:
         st.warning("Coluna 'PRODUCÃO' não encontrada.")
 
-# --- Outras páginas ---
+# --- Página: Qualidade ---
 elif pagina == "🧪 Qualidade":
     st.title("🧪 Qualidade")
     st.info("🔧 Em construção...")
 
+# --- Página: DRE ---
 elif pagina == "💰 DRE":
     st.title("💰 Demonstrativo de Resultados (DRE)")
     st.info("🔧 Em construção...")
 
+# --- Página: RH ---
 elif pagina == "🧑‍💼 RH":
     st.title("🧑‍💼 Recursos Humanos")
     st.info("🔧 Em construção...")
