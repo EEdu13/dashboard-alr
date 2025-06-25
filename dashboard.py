@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine, text
 from urllib.parse import quote_plus
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode
+from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
 import plotly.express as px
 
 # --- Configuração da página ---
@@ -38,65 +38,66 @@ try:
     )
     query = "SELECT TOP 1000 * FROM HISTORICO_BDO ORDER BY ID DESC"
     df = pd.read_sql(query, engine)
-
 except Exception as e:
     st.error(f"Erro ao conectar ao banco de dados: {e}")
     st.stop()
 
-# --- Página: Dados (com AgGrid) ---
+# --- Página de Dados com Grid ---
 if pagina == "📄 Dados":
     st.title("📄 Dados Brutos - HISTORICO_BDO")
 
-    # Filtro por líder
     lideres = df['LIDER'].dropna().unique()
     lider_sel = st.selectbox("Filtrar por LÍDER", ["Todos"] + list(lideres))
     if lider_sel != "Todos":
         df = df[df['LIDER'] == lider_sel]
 
-    # Ocultação de colunas
     todas_colunas = list(df.columns)
     colunas_visiveis = st.multiselect("🔍 Selecione as colunas visíveis:", todas_colunas, default=todas_colunas)
     df = df[colunas_visiveis]
 
-    # Configuração do AgGrid
+    # 🧩 Configuração da Grid
     gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column(editable=False, resizable=True, filter=True)
+    gb.configure_default_column(resizable=True, filter=True, sortable=True)
 
-    # Colunas com agregação
-    if "PRODUCÃO" in df.columns:
-        gb.configure_column("PRODUCÃO", editable=True, type=["numericColumn"], aggFunc="sum")
-    if "FATURADO" in df.columns:
-        gb.configure_column("FATURADO", editable=True, type=["numericColumn"], aggFunc="sum")
-    if "LIDER" in df.columns:
-        gb.configure_column("LIDER", editable=False, aggFunc="count")
+    # Define colunas numéricas para soma
+    colunas_numericas = df.select_dtypes(include='number').columns.tolist()
+    for col in colunas_numericas:
+        gb.configure_column(col, editable=True, type=["numericColumn"], aggFunc='sum', enableValue=True)
 
-    # Opções do grid
+    # Outras colunas como contagem
+    colunas_texto = df.select_dtypes(include='object').columns.tolist()
+    for col in colunas_texto:
+        gb.configure_column(col, editable=False, aggFunc='count', enableValue=True)
+
     gb.configure_grid_options(
-        autoSizeAllColumns=True,
         groupIncludeFooter=True,
         groupIncludeTotalFooter=True,
-        suppressAggFuncInHeader=False,
+        autoSizeAllColumns=True,
+        enableRangeSelection=True,
+        domLayout='normal'
     )
 
     grid_options = gb.build()
 
+    # Mostrar grade
     grid_response = AgGrid(
         df,
         gridOptions=grid_options,
         update_mode=GridUpdateMode.MODEL_CHANGED,
-        fit_columns_on_grid_load=False,
         allow_unsafe_jscode=True,
+        fit_columns_on_grid_load=False,
         use_container_width=True,
-        height=500
+        enable_enterprise_modules=True,
+        height=600
     )
 
     df_editado = grid_response["data"]
 
-    # Atualização no SQL em tempo real
+    # Atualizar banco em tempo real
     with engine.begin() as conn:
         for _, row in df_editado.iterrows():
-            try:
-                if "PRODUCÃO" in row and "FATURADO" in row:
+            if "ID" in row and "PRODUCÃO" in row and "FATURADO" in row:
+                try:
                     conn.execute(
                         text("""
                             UPDATE HISTORICO_BDO
@@ -106,15 +107,14 @@ if pagina == "📄 Dados":
                         """),
                         {"producao": row["PRODUCÃO"], "faturado": row["FATURADO"], "id": row["ID"]}
                     )
-            except Exception as e:
-                st.error(f"Erro ao atualizar ID {row['ID']}: {e}")
+                except Exception as e:
+                    st.error(f"Erro ao atualizar ID {row['ID']}: {e}")
 
 # --- Página: Dashboards ---
 elif pagina == "📊 Dashboards":
     st.title("📊 Dashboards de Produção")
     if 'PRODUCÃO' in df.columns:
         df['PRODUCÃO'] = pd.to_numeric(df['PRODUCÃO'], errors='coerce')
-
         graf_barra = df.groupby("LIDER")["PRODUCÃO"].sum().reset_index()
         st.subheader("📦 Produção por Líder")
         fig1 = px.bar(graf_barra, x="LIDER", y="PRODUCÃO", text_auto=True)
@@ -126,17 +126,15 @@ elif pagina == "📊 Dashboards":
     else:
         st.warning("Coluna 'PRODUCÃO' não encontrada.")
 
-# --- Página: Qualidade ---
+# --- Páginas em construção ---
 elif pagina == "🧪 Qualidade":
     st.title("🧪 Qualidade")
     st.info("🔧 Em construção...")
 
-# --- Página: DRE ---
 elif pagina == "💰 DRE":
     st.title("💰 Demonstrativo de Resultados (DRE)")
     st.info("🔧 Em construção...")
 
-# --- Página: RH ---
 elif pagina == "🧑‍💼 RH":
     st.title("🧑‍💼 Recursos Humanos")
     st.info("🔧 Em construção...")
