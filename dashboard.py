@@ -1,140 +1,154 @@
 import streamlit as st
 import pandas as pd
-from sqlalchemy import create_engine, text
-from urllib.parse import quote_plus
-from st_aggrid import AgGrid, GridOptionsBuilder, GridUpdateMode, JsCode
-import plotly.express as px
+from datetime import datetime
+from conexao_sql import obter_dados_sharepoint
 
-# --- Configuração da página ---
-st.set_page_config(page_title="Dashboard ALR", layout="wide")
+# ==== CONFIGURAÇÃO VISUAL ====
+st.set_page_config("Sistema de Projetos", layout="wide")
+st.markdown("""
+    <style>
+        body { color: white; background-color: #111; }
+        .stDataFrame tbody tr td { text-align: center; }
+        .stDataFrame { height: auto !important; max-height: none !important; overflow: visible !important; }
+    </style>
+""", unsafe_allow_html=True)
 
-# --- Login ---
-usuarios = {"admin": "admin123", "alr": "alr2025"}
-if "logado" not in st.session_state:
-    st.session_state.logado = False
+# ==== LOGIN USANDO SECRETS ====
+usuarios_dict = st.secrets["usuarios"]
+df_login = pd.DataFrame(usuarios_dict)
 
-if not st.session_state.logado:
-    st.title("🔒 Login")
-    usuario = st.text_input("Usuário")
-    senha = st.text_input("Senha", type="password")
-    if st.button("Entrar"):
-        if usuario in usuarios and senha == usuarios[usuario]:
-            st.session_state.logado = True
-            st.experimental_rerun()
+df_login["LOGIN"] = df_login["LOGIN"].astype(str).str.lower().str.strip()
+df_login["SENHA"] = df_login["SENHA"].astype(str).str.strip()
+
+if "autenticado" not in st.session_state:
+    st.session_state.autenticado = False
+    st.session_state.usuario = None
+
+if not st.session_state.autenticado:
+    st.title("Sistema de Projetos")
+    with st.form("login_form"):
+        login = st.text_input("Login").strip().lower()
+        senha = st.text_input("Senha", type="password").strip()
+        submitted = st.form_submit_button("Entrar")
+
+    if submitted:
+        usuario = df_login[(df_login["LOGIN"] == login) & (df_login["SENHA"] == senha)]
+        if not usuario.empty:
+            st.session_state.autenticado = True
+            st.session_state.usuario = usuario.iloc[0].to_dict()
+            st.rerun()
         else:
-            st.error("Usuário ou senha inválidos.")
+            st.error("Login ou senha inválidos.")
     st.stop()
 
-# --- Menu lateral ---
-st.sidebar.title("📁 Navegação")
-pagina = st.sidebar.radio("Ir para:", ["📄 Dados", "📊 Dashboards", "🧪 Qualidade", "💰 DRE", "🧑‍💼 RH"])
+# ==== DADOS ====
+st.title("Sistema de Projetos")
+usuario = st.session_state.usuario
+df = obter_dados_sharepoint()
 
-# --- Conexão com SQL ---
-try:
-    senha_segura = quote_plus("Senhaforte123!")
-    engine = create_engine(
-        f"mssql+pyodbc://gestaoti:{senha_segura}@alrflorestal.database.windows.net/Tabela_teste"
-        "?driver=ODBC+Driver+17+for+SQL+Server&Encrypt=yes&TrustServerCertificate=yes"
+# Ajusta colunas
+df["Title"] = df["Title"].astype(str).str.strip()
+df["PROJETO"] = df["Title"]
+df["FAZENDA"] = df["FAZENDA"].astype(str).str.strip()
+df["TARIFA"] = pd.to_numeric(df["TARIFA"], errors="coerce").fillna(0)
+df["PRODUÇÃO"] = pd.to_numeric(df["PRODU_x00c7__x00c3_O"], errors="coerce").fillna(0)
+
+# Converte datas
+df["DATA_EXECUCAO"] = pd.to_datetime(df["DATA_x0020_EXECU_x00c7__x00c3_O"], errors="coerce")
+df["FECHAMENTO"] = pd.to_datetime(df["FECHAMENTO"], errors="coerce")
+df["FECHAMENTO_FORMATADO"] = df["FECHAMENTO"].dt.strftime("%d/%m/%Y")
+
+# Modalidade
+df["MODALIDADE"] = df.get("MOD_x002e_", "").fillna("").replace("None", "")
+df["MODALIDADE"] = df["MODALIDADE"].replace("", "—")
+
+# ==== PROJETOS DO USUÁRIO ====
+projetos_usuario = (
+    df_login[df_login["LOGIN"] == usuario["LOGIN"]]["PROJETO"]
+    .astype(str).str.strip().str.split(";").explode().str.strip().unique()
+)
+projetos_usuario = sorted(p for p in projetos_usuario if p != "")
+
+st.success(f"Bem-vindo, {usuario['USUARIO'].upper()} ({usuario['PERFIL'].upper()})")
+
+# ==== FILTROS ====
+st.subheader("Projetos disponíveis")
+col1, col2, col3 = st.columns([2, 2, 2])
+
+projetos_opcoes = ["Todos"] + projetos_usuario
+with col1:
+    projeto = st.selectbox("Selecione um projeto", projetos_opcoes)
+with col2:
+    data_inicial, data_final = st.date_input(
+        "Selecione o intervalo de datas (DATA_EXECUCAO)",
+        value=(datetime.today().date(), datetime.today().date()),
+        format="DD/MM/YYYY"
     )
-    query = "SELECT TOP 1000 * FROM HISTORICO_BDO ORDER BY ID DESC"
-    df = pd.read_sql(query, engine)
-except Exception as e:
-    st.error(f"Erro ao conectar ao banco de dados: {e}")
-    st.stop()
+with col3:
+    fechamento_opcoes = ["Todos"] + sorted(df["FECHAMENTO_FORMATADO"].dropna().unique())
+    fechamento = st.selectbox("Filtrar por FECHAMENTO", fechamento_opcoes)
 
-# --- Página de Dados com Grid ---
-if pagina == "📄 Dados":
-    st.title("📄 Dados Brutos - HISTORICO_BDO")
+# ==== APLICA FILTROS ====
+filtro_data = (df["DATA_EXECUCAO"].dt.date >= data_inicial) & (df["DATA_EXECUCAO"].dt.date <= data_final)
 
-    lideres = df['LIDER'].dropna().unique()
-    lider_sel = st.selectbox("Filtrar por LÍDER", ["Todos"] + list(lideres))
-    if lider_sel != "Todos":
-        df = df[df['LIDER'] == lider_sel]
+if projeto == "Todos":
+    df_filtrado = df[(df["PROJETO"].isin(projetos_usuario)) & filtro_data]
+else:
+    df_filtrado = df[(df["PROJETO"] == projeto) & filtro_data]
 
-    todas_colunas = list(df.columns)
-    colunas_visiveis = st.multiselect("🔍 Selecione as colunas visíveis:", todas_colunas, default=todas_colunas)
-    df = df[colunas_visiveis]
+if fechamento != "Todos":
+    df_filtrado = df_filtrado[df_filtrado["FECHAMENTO_FORMATADO"] == fechamento]
 
-    # 🧩 Configuração da Grid
-    gb = GridOptionsBuilder.from_dataframe(df)
-    gb.configure_default_column(resizable=True, filter=True, sortable=True)
+st.write(f"Total de registros encontrados: {len(df_filtrado)}")
 
-    # Define colunas numéricas para soma
-    colunas_numericas = df.select_dtypes(include='number').columns.tolist()
-    for col in colunas_numericas:
-        gb.configure_column(col, editable=True, type=["numericColumn"], aggFunc='sum', enableValue=True)
+if not df_filtrado.empty:
+    df_filtrado["FATURA (R$)"] = df_filtrado["PRODUÇÃO"] * df_filtrado["TARIFA"]
 
-    # Outras colunas como contagem
-    colunas_texto = df.select_dtypes(include='object').columns.tolist()
-    for col in colunas_texto:
-        gb.configure_column(col, editable=False, aggFunc='count', enableValue=True)
-
-    gb.configure_grid_options(
-        groupIncludeFooter=True,
-        groupIncludeTotalFooter=True,
-        autoSizeAllColumns=True,
-        enableRangeSelection=True,
-        domLayout='normal'
+    df_agrupado = (
+        df_filtrado.groupby(["PROJETO", "SUPERVISOR", "MODALIDADE", "SERVI_x00c7_O", "MEDIDA"], as_index=False)
+        .agg({"PRODUÇÃO": "sum", "FATURA (R$)": "sum"})
+        .rename(columns={
+            "PROJETO": "Projeto",
+            "SUPERVISOR": "Supervisor",
+            "MODALIDADE": "Modalidade",
+            "SERVI_x00c7_O": "Serviço",
+            "MEDIDA": "Medida"
+        })
     )
 
-    grid_options = gb.build()
+    total_producao = df_agrupado["PRODUÇÃO"].sum()
+    total_fatura = df_agrupado["FATURA (R$)"].sum()
 
-    # Mostrar grade
-    grid_response = AgGrid(
-        df,
-        gridOptions=grid_options,
-        update_mode=GridUpdateMode.MODEL_CHANGED,
-        allow_unsafe_jscode=True,
-        fit_columns_on_grid_load=False,
-        use_container_width=True,
-        enable_enterprise_modules=True,
-        height=600
+    st.markdown(f"""
+        <div style='background-color:#004d40;padding:30px;border-radius:15px;text-align:center;color:white;font-size:36px;font-weight:bold;margin-bottom:25px;'>
+            💰 TOTAL FATURADO: R$ {total_fatura:,.2f}
+        </div>
+    """, unsafe_allow_html=True)
+
+    linha_total = pd.DataFrame([{
+        "Projeto": "TOTAL GERAL",
+        "Supervisor": "",
+        "Modalidade": "",
+        "Serviço": "",
+        "Medida": "",
+        "PRODUÇÃO": total_producao,
+        "FATURA (R$)": total_fatura
+    }])
+
+    df_final = pd.concat([df_agrupado, linha_total], ignore_index=True)
+    df_formatado = df_final.style.format({"FATURA (R$)": "R$ {:,.2f}".format, "PRODUÇÃO": "{:,.2f}".format})
+    st.dataframe(df_formatado, use_container_width=True)
+
+    # ==== TABELA RESUMO DE MAN E MEC ====
+    df_resumo = (
+        df_filtrado[df_filtrado["MODALIDADE"].isin(["Man", "Mec"])]
+        .groupby("MODALIDADE")
+        .agg({"PRODUÇÃO": "sum", "FATURA (R$)": "sum"})
+        .reset_index()
     )
 
-    df_editado = grid_response["data"]
+    st.markdown("### 💡 Resumo por Modalidade (Man/Mec)")
+    st.table(df_resumo.style.format({"FATURA (R$)": "R$ {:,.2f}".format, "PRODUÇÃO": "{:,.2f}".format}))
 
-    # Atualizar banco em tempo real
-    with engine.begin() as conn:
-        for _, row in df_editado.iterrows():
-            if "ID" in row and "PRODUCÃO" in row and "FATURADO" in row:
-                try:
-                    conn.execute(
-                        text("""
-                            UPDATE HISTORICO_BDO
-                            SET PRODUCÃO = :producao,
-                                FATURADO = :faturado
-                            WHERE ID = :id
-                        """),
-                        {"producao": row["PRODUCÃO"], "faturado": row["FATURADO"], "id": row["ID"]}
-                    )
-                except Exception as e:
-                    st.error(f"Erro ao atualizar ID {row['ID']}: {e}")
-
-# --- Página: Dashboards ---
-elif pagina == "📊 Dashboards":
-    st.title("📊 Dashboards de Produção")
-    if 'PRODUCÃO' in df.columns:
-        df['PRODUCÃO'] = pd.to_numeric(df['PRODUCÃO'], errors='coerce')
-        graf_barra = df.groupby("LIDER")["PRODUCÃO"].sum().reset_index()
-        st.subheader("📦 Produção por Líder")
-        fig1 = px.bar(graf_barra, x="LIDER", y="PRODUCÃO", text_auto=True)
-        st.plotly_chart(fig1, use_container_width=True)
-
-        st.subheader("🥧 Distribuição da Produção (%)")
-        fig2 = px.pie(graf_barra, names="LIDER", values="PRODUCÃO")
-        st.plotly_chart(fig2, use_container_width=True)
-    else:
-        st.warning("Coluna 'PRODUCÃO' não encontrada.")
-
-# --- Páginas em construção ---
-elif pagina == "🧪 Qualidade":
-    st.title("🧪 Qualidade")
-    st.info("🔧 Em construção...")
-
-elif pagina == "💰 DRE":
-    st.title("💰 Demonstrativo de Resultados (DRE)")
-    st.info("🔧 Em construção...")
-
-elif pagina == "🧑‍💼 RH":
-    st.title("🧑‍💼 Recursos Humanos")
-    st.info("🔧 Em construção...")
+else:
+    st.warning("Nenhum dado encontrado para os filtros aplicados.")
