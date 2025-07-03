@@ -17,8 +17,10 @@ st.markdown("""
 usuarios_dict = st.secrets["usuarios"]
 df_login = pd.DataFrame(usuarios_dict)
 
+
 df_login["LOGIN"] = df_login["LOGIN"].astype(str).str.lower().str.strip()
 df_login["SENHA"] = df_login["SENHA"].astype(str).str.strip()
+
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
