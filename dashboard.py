@@ -49,8 +49,7 @@ usuario = st.session_state.usuario
 df = obter_dados_sharepoint()
 
 # Ajusta colunas
-df["Title"] = df["Title"].astype(str).str.strip()
-df["PROJETO"] = df["Title"]
+df["PROJETO"] = df["PROJETO"].astype(str).str.strip()
 df["FAZENDA"] = df["FAZENDA"].astype(str).str.strip()
 df["TARIFA"] = pd.to_numeric(df["TARIFA"], errors="coerce").fillna(0)
 df["PRODUÇÃO"] = pd.to_numeric(df["PRODU_x00c7__x00c3_O"], errors="coerce").fillna(0)
