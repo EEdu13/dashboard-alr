@@ -1,18 +1,22 @@
 import pyodbc
+import pandas as pd
 
-# Conexão com SQL Server
-server = 'alrflorestal.database.windows.net'
-database = 'Tabela_teste'
-username = 'sqladmin'
-password = 'SenhaForte123!'
-driver = '{ODBC Driver 17 for SQL Server}'  # ou ODBC Driver 18 se estiver instalado
+def obter_dados_sharepoint():
+    server = 'alrflorestal.database.windows.net'
+    database = 'Tabela_teste'
+    username = 'sqladmin'
+    password = 'SenhaForte123!'
+    driver = '{ODBC Driver 17 for SQL Server}'
 
-conn = pyodbc.connect(
-    f'DRIVER={driver};'
-    f'SERVER={server};'
-    f'DATABASE={database};'
-    f'UID={username};'
-    f'PWD={password}'
-)
+    conn = pyodbc.connect(
+        f'DRIVER={driver};'
+        f'SERVER={server};'
+        f'DATABASE={database};'
+        f'UID={username};'
+        f'PWD={password}'
+    )
 
-cursor = conn.cursor()
+    query = "SELECT * FROM BOLETIM_DIARIO"  # ou o nome correto da sua tabela
+    df = pd.read_sql(query, conn)
+    conn.close()
+    return df
