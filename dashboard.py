@@ -16,11 +16,8 @@ st.markdown("""
 # ==== LOGIN USANDO SECRETS ====
 usuarios_dict = st.secrets["usuarios"]
 df_login = pd.DataFrame(usuarios_dict)
-
-
 df_login["LOGIN"] = df_login["LOGIN"].astype(str).str.lower().str.strip()
 df_login["SENHA"] = df_login["SENHA"].astype(str).str.strip()
-
 
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
@@ -52,15 +49,15 @@ df = obter_dados_sharepoint()
 df["PROJETO"] = df["PROJETO"].astype(str).str.strip()
 df["FAZENDA"] = df["FAZENDA"].astype(str).str.strip()
 df["TARIFA"] = pd.to_numeric(df["TARIFA"], errors="coerce").fillna(0)
-df["PRODUÇÃO"] = pd.to_numeric(df["PRODU_x00c7__x00c3_O"], errors="coerce").fillna(0)
+df["PRODUÇÃO"] = pd.to_numeric(df["PRODUÇÃO"], errors="coerce").fillna(0)
 
 # Converte datas
-df["DATA_EXECUCAO"] = pd.to_datetime(df["DATA_x0020_EXECU_x00c7__x00c3_O"], errors="coerce")
+df["DATA_EXECUÇÃO"] = pd.to_datetime(df["DATA_EXECUÇÃO"], errors="coerce")
 df["FECHAMENTO"] = pd.to_datetime(df["FECHAMENTO"], errors="coerce")
 df["FECHAMENTO_FORMATADO"] = df["FECHAMENTO"].dt.strftime("%d/%m/%Y")
 
 # Modalidade
-df["MODALIDADE"] = df.get("MOD_x002e_", "").fillna("").replace("None", "")
+df["MODALIDADE"] = df.get("MOD", "").fillna("").replace("None", "")
 df["MODALIDADE"] = df["MODALIDADE"].replace("", "—")
 
 # ==== PROJETOS DO USUÁRIO ====
@@ -81,7 +78,7 @@ with col1:
     projeto = st.selectbox("Selecione um projeto", projetos_opcoes)
 with col2:
     data_inicial, data_final = st.date_input(
-        "Selecione o intervalo de datas (DATA_EXECUCAO)",
+        "Selecione o intervalo de datas (DATA_EXECUÇÃO)",
         value=(datetime.today().date(), datetime.today().date()),
         format="DD/MM/YYYY"
     )
@@ -90,7 +87,7 @@ with col3:
     fechamento = st.selectbox("Filtrar por FECHAMENTO", fechamento_opcoes)
 
 # ==== APLICA FILTROS ====
-filtro_data = (df["DATA_EXECUCAO"].dt.date >= data_inicial) & (df["DATA_EXECUCAO"].dt.date <= data_final)
+filtro_data = (df["DATA_EXECUÇÃO"].dt.date >= data_inicial) & (df["DATA_EXECUÇÃO"].dt.date <= data_final)
 
 if projeto == "Todos":
     df_filtrado = df[(df["PROJETO"].isin(projetos_usuario)) & filtro_data]
@@ -106,13 +103,13 @@ if not df_filtrado.empty:
     df_filtrado["FATURA (R$)"] = df_filtrado["PRODUÇÃO"] * df_filtrado["TARIFA"]
 
     df_agrupado = (
-        df_filtrado.groupby(["PROJETO", "SUPERVISOR", "MODALIDADE", "SERVI_x00c7_O", "MEDIDA"], as_index=False)
+        df_filtrado.groupby(["PROJETO", "SUPERVISOR", "MODALIDADE", "SERVIÇO", "MEDIDA"], as_index=False)
         .agg({"PRODUÇÃO": "sum", "FATURA (R$)": "sum"})
         .rename(columns={
             "PROJETO": "Projeto",
             "SUPERVISOR": "Supervisor",
             "MODALIDADE": "Modalidade",
-            "SERVI_x00c7_O": "Serviço",
+            "SERVIÇO": "Serviço",
             "MEDIDA": "Medida"
         })
     )
