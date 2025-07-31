@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from conexao_sql import obter_dados_sharepoint
+from conexao_sql import obter_dados_sharepoint, obter_senhas_sql
 from st_aggrid import AgGrid, GridOptionsBuilder
 
 # ==== CONFIGURAÇÃO VISUAL ====
@@ -14,8 +14,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# ==== LOGIN USANDO EXCEL ====
-df_login = pd.read_excel("SENHAS.xlsx")
+# ==== LOGIN USANDO SQL ====
+df_login = obter_senhas_sql()
 df_login.columns = df_login.columns.str.upper().str.strip()
 df_login["LOGIN"] = df_login["LOGIN"].astype(str).str.lower().str.strip()
 df_login["SENHA"] = df_login["SENHA"].astype(str).str.strip()
