@@ -5,3 +5,4 @@ pyodbc
 plotly
 msal
 requests
+streamlit-aggrid
